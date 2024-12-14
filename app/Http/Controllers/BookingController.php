@@ -27,11 +27,45 @@ class BookingController extends Controller
             'message' => 'nullable|string',
         ]);
 
+        // Create or find client
+        $client = \App\Models\Client::firstOrCreate(
+            ['email' => $validated['email']],
+            [
+                'name' => $validated['name'],
+                'phone' => $validated['phone'],
+                'ndis_number' => $validated['ndis_number'] ?? null,
+            ]
+        );
+
+        // Calculate start and end time
+        $startTime = \Carbon\Carbon::parse($validated['date'] . ' ' . $validated['time']);
+        $endTime = $startTime->copy()->addHour(); // Default 1-hour session
+
         // Create booking
-        $booking = Booking::create($validated);
+        $booking = Booking::create([
+            'client_id' => $client->id,
+            'session_type' => $validated['session_type'],
+            'start_time' => $startTime,
+            'end_time' => $endTime,
+            'is_ndis' => $validated['is_ndis'] ?? false,
+            'status' => 'pending',
+            'rate' => 150.00, // Default rate, should be configurable
+            'notes' => $validated['message'],
+            'session_link' => $validated['session_type'] === 'online' ? \Str::uuid() : null,
+        ]);
 
         // Send confirmation email
-        Mail::raw("New booking request:\n\nName: {$validated['name']}\nEmail: {$validated['email']}\nPhone: {$validated['phone']}\nDate: {$validated['date']}\nTime: {$validated['time']}\nSession Type: {$validated['session_type']}\nNDIS: " . ($validated['is_ndis'] ? 'Yes' : 'No') . "\nMessage: {$validated['message']}", 
+        Mail::raw(
+            "New booking request:\n\n" .
+            "Name: {$validated['name']}\n" .
+            "Email: {$validated['email']}\n" .
+            "Phone: {$validated['phone']}\n" .
+            "Date: {$startTime->format('Y-m-d')}\n" .
+            "Time: {$startTime->format('H:i')}\n" .
+            "Session Type: {$validated['session_type']}\n" .
+            "NDIS: " . ($validated['is_ndis'] ? 'Yes' : 'No') . "\n" .
+            "Message: {$validated['message']}\n\n" .
+            ($validated['session_type'] === 'online' ? "Session Link: " . url("/session/{$booking->session_link}") : ""),
             function ($message) use ($validated) {
                 $message->from($validated['email'], $validated['name'])
                        ->to('levelupcodingsa@gmail.com')
